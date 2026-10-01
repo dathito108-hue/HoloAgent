@@ -378,6 +378,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HoloMasterAppUI(orchestrator: HoloMasterQuantumOrchestrator) {
     var tabIndex by remember { mutableStateOf(0) }
