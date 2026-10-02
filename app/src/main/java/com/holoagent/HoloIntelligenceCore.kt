@@ -254,7 +254,8 @@ class HoloIntelligenceCore(private val persistence: PersistentCognitiveMemory? =
                 activeMultiStepPlan,
                 observation,
                 reasoning,
-                before
+                before,
+                previousResults
             )
         }
 
@@ -325,10 +326,19 @@ class HoloIntelligenceCore(private val persistence: PersistentCognitiveMemory? =
         reasoning: ReasoningConclusion,
         multiStepPlan: MultiStepPlan
     ): List<PlannedAction> {
-        val candidates = mutableListOf<PlannedAction>()
         val activeStep = multiStepPlan.steps.getOrNull(multiStepPlan.currentStepIndex)
-        activeStep?.let { candidates += scored(it.action, "Bước ${it.id}: ${it.description}", it.priority + multiStepPlan.confidence * .15f, it.id) }
+        if (activeStep != null) {
+            return listOf(
+                scored(
+                    activeStep.action,
+                    "Bước " + activeStep.id + ": " + activeStep.description,
+                    activeStep.priority + multiStepPlan.confidence * .15f,
+                    activeStep.id
+                )
+            )
+        }
 
+        val candidates = mutableListOf<PlannedAction>()
         if (observation.tokenCount > 0) {
             candidates += scored(
                 ActionType.CONSOLIDATE_MEMORY,
