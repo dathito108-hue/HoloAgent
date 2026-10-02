@@ -1,5 +1,7 @@
 package com.holoagent
 
+import android.content.Context
+
 import java.math.BigInteger
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -138,13 +140,13 @@ class AutonomousSovereignEconomicAgent(val walletAddress: String, private var ba
     fun getBalance() = balanceGwei
 }
 
-class HoloMasterOmniAgiCollectiveV18(val nodeId: String, ipAddress: String) {
+class HoloMasterOmniAgiCollectiveV18(val nodeId: String, ipAddress: String, context: Context? = null) {
     private val memoryEngine = SsmHdcInfiniteMemoryEngine()
     private val siliconEngine = SubMillisecondSiliconEngine()
     private val swarmEngine = GlobalP2PGossipSwarm(SwarmNode(nodeId, ipAddress))
     private val spatialEngine = VolumetricSpatialTwinEngine()
     private val economicAgent = AutonomousSovereignEconomicAgent("0x" + nodeId)
-    private val intelligenceCore = HoloIntelligenceCore()
+    private val intelligenceCore = HoloIntelligenceCore(context?.let { PersistentCognitiveMemory(it) })
 
     private var lastMemorySimilarity = 0f
     private var lastInferenceLatencyNs = 0L
