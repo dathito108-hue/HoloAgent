@@ -105,6 +105,21 @@ class AdaptiveExperienceMemory(private val capacity: Int = 128) {
 
     @Synchronized
     fun size(): Int = experiences.size
+
+    @Synchronized
+    fun snapshot(): List<PersistedExperience> = experiences.map {
+        PersistedExperience(it.cycle, it.observation, it.reward, it.successfulActions)
+    }
+
+    @Synchronized
+    fun restore(items: List<PersistedExperience>) {
+        experiences.clear()
+        items.takeLast(capacity).forEach {
+            experiences.addLast(
+                Experience(it.cycle, it.observation, it.reward, it.successfulActions)
+            )
+        }
+    }
 }
 
  
@@ -138,6 +153,19 @@ class CausalReasoningGraph(private val capacity: Int = 256) {
         } else {
             if (relations.size >= capacity) relations.removeFirst()
             relations.addLast(CausalRelation(cause, effect, outcome.coerceIn(-1f, 1f)))
+        }
+    }
+
+    @Synchronized
+    fun snapshot(): List<PersistedCausalRelation> = relations.map {
+        PersistedCausalRelation(it.cause, it.effect, it.strength, it.observations)
+    }
+
+    @Synchronized
+    fun restore(items: List<PersistedCausalRelation>) {
+        relations.clear()
+        items.takeLast(capacity).forEach {
+            relations.addLast(CausalRelation(it.cause, it.effect, it.strength, it.observations))
         }
     }
 
@@ -214,7 +242,22 @@ class HoloIntelligenceCore(private val persistence: PersistentCognitiveMemory? =
         }
 
         val reasoning = causalGraph.infer(observation, before)
-        activeMultiStepPlan = goalPlanner.decompose(goal, observation, reasoning, before)
+        val shouldReplan = activeMultiStepPlan.goalId != goal.id ||
+            activeMultiStepPlan.steps.isEmpty() ||
+            activeMultiStepPlan.currentStepIndex >= activeMultiStepPlan.steps.size ||
+            previousObservation == null
+
+        if (shouldReplan) {
+            activeMultiStepPlan = goalPlanner.decompose(goal, observation, reasoning, before)
+        } else {
+            activeMultiStepPlan = goalPlanner.replan(
+                activeMultiStepPlan,
+                observation,
+                reasoning,
+                before
+            )
+        }
+
         val plan = buildPlan(before, observation, reasoning, activeMultiStepPlan)
         val results = plan.map { action ->
             try {
