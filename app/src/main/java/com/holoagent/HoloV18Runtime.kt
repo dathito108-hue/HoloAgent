@@ -143,15 +143,97 @@ class HoloMasterOmniAgiCollectiveV18(val nodeId: String, ipAddress: String) {
     private val siliconEngine = SubMillisecondSiliconEngine()
     private val swarmEngine = GlobalP2PGossipSwarm(SwarmNode(nodeId, ipAddress))
     private val spatialEngine = VolumetricSpatialTwinEngine()
-    private val economicAgent = AutonomousSovereignEconomicAgent("0x$nodeId")
+    private val economicAgent = AutonomousSovereignEconomicAgent("0x" + nodeId)
+    private val intelligenceCore = HoloIntelligenceCore()
+
+    private var lastMemorySimilarity = 0f
+    private var lastInferenceLatencyNs = 0L
+    private var lastSurfaceCount = 0
+    private var lastEconomicOpportunity = true
+    private var lastCycleSucceeded = true
+
+    fun executeIntelligenceCycle(
+        inputTokens: Array<FloatArray>,
+        rawSpatialData: List<Point3D>,
+        goal: AgentGoal = AgentGoal(
+            id = "maintain_adaptive_operation",
+            description = "Duy trì hoạt động thích nghi, ổn định và hiệu quả",
+            priority = 0.85f
+        )
+    ): IntelligenceCycleResult {
+        val observation = AgentObservation(
+            tokenCount = inputTokens.size,
+            memorySimilarity = lastMemorySimilarity,
+            spatialSurfaceCount = lastSurfaceCount,
+            inferenceLatencyNs = lastInferenceLatencyNs,
+            economicOpportunity = lastEconomicOpportunity,
+            cycleSucceeded = lastCycleSucceeded
+        )
+
+        val result = intelligenceCore.runCycle(goal, observation) { action ->
+            executePlannedAction(action, inputTokens, rawSpatialData)
+        }
+
+        lastCycleSucceeded = result.results.all { it.success || it.action.type == ActionType.EVALUATE_ECONOMIC_TASK }
+        return result
+    }
+
     fun executeMasterCycle(inputTokens: Array<FloatArray>, rawSpatialData: List<Point3D>): Boolean {
-        memoryEngine.processAndCompressTokenStream(inputTokens)
-        siliconEngine.executeInference(FloatArray(1024) { 1f }, FloatArray(1024) { 0.5f }, FloatArray(1024))
-        spatialEngine.ingestSensorData(rawSpatialData)
-        spatialEngine.detectPlanarSurfaces().firstOrNull()?.let { spatialEngine.calculateLandingCoordinates(it) }
-        val executed = economicAgent.evaluateAndExecuteTask(21000L, BigInteger.valueOf(500_000L))
-        swarmEngine.broadcastStateUpdate("AGI_CYCLE_COMPLETED_NODE_$nodeId".toByteArray(Charsets.UTF_8))
-        return executed
+        val result = executeIntelligenceCycle(inputTokens, rawSpatialData)
+        return result.results.any { it.success }
+    }
+
+    fun currentIntelligenceState(): AgentState = intelligenceCore.currentState()
+    fun experienceCount(): Int = intelligenceCore.experienceCount()
+
+    private fun executePlannedAction(
+        action: PlannedAction,
+        inputTokens: Array<FloatArray>,
+        rawSpatialData: List<Point3D>
+    ): ActionResult {
+        return when (action.type) {
+            ActionType.CONSOLIDATE_MEMORY -> {
+                val previous = memoryEngine.getMemoryBufferSnapshot()
+                memoryEngine.processAndCompressTokenStream(inputTokens)
+                lastMemorySimilarity = memoryEngine.queryMemory(previous)
+                ActionResult(action, true, 0.8f, "memory_similarity=" + lastMemorySimilarity)
+            }
+
+            ActionType.RUN_INFERENCE -> {
+                val size = inputTokens.firstOrNull()?.size?.coerceIn(64, 4096) ?: 1024
+                val first = inputTokens.firstOrNull()
+                val input = FloatArray(size) { i -> first?.getOrNull(i) ?: 0f }
+                val weights = FloatArray(size) { 0.5f }
+                val output = FloatArray(size)
+                lastInferenceLatencyNs = siliconEngine.executeInference(input, weights, output)
+                val finite = output.all { it.isFinite() }
+                ActionResult(action, finite, if (finite) 0.9f else -1f, "latency_ns=" + lastInferenceLatencyNs + "; output0=" + (output.firstOrNull() ?: 0f))
+            }
+
+            ActionType.ANALYZE_SPATIAL -> {
+                spatialEngine.ingestSensorData(rawSpatialData)
+                val surfaces = spatialEngine.detectPlanarSurfaces()
+                lastSurfaceCount = surfaces.size
+                val landing = surfaces.firstOrNull()?.let { spatialEngine.calculateLandingCoordinates(it) }
+                ActionResult(action, rawSpatialData.isEmpty() || surfaces.isNotEmpty(), if (surfaces.isNotEmpty()) 0.75f else 0.1f, "surfaces=" + surfaces.size + "; landing=" + landing)
+            }
+
+            ActionType.SHARE_STATE -> {
+                val statePayload = ("node=" + nodeId + ";cycle=" + intelligenceCore.currentState().cycle + ";memory=" + lastMemorySimilarity + ";latency=" + lastInferenceLatencyNs + ";surfaces=" + lastSurfaceCount).toByteArray(Charsets.UTF_8)
+                val message = swarmEngine.broadcastStateUpdate(statePayload)
+                ActionResult(action, message.stateHash.isNotBlank(), 0.55f, "state_hash=" + message.stateHash.take(16))
+            }
+
+            ActionType.EVALUATE_ECONOMIC_TASK -> {
+                val before = economicAgent.getBalance()
+                val executed = economicAgent.evaluateAndExecuteTask(21_000L, BigInteger.valueOf(500_000L))
+                val after = economicAgent.getBalance()
+                lastEconomicOpportunity = executed
+                ActionResult(action, true, if (executed) 0.5f else 0.2f, "executed=" + executed + "; balance_before=" + before + "; balance_after=" + after)
+            }
+
+            ActionType.IDLE -> ActionResult(action, true, 0f, "idle")
+        }
     }
 }
 
