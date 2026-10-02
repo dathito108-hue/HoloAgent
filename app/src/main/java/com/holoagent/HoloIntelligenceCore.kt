@@ -104,8 +104,89 @@ class AdaptiveExperienceMemory(private val capacity: Int = 128) {
     fun size(): Int = experiences.size
 }
 
+ 
+data class CausalRelation(
+    val cause: String,
+    val effect: String,
+    val strength: Float,
+    val observations: Int = 1
+)
+
+data class ReasoningConclusion(
+    val hypothesis: String,
+    val evidence: List<String>,
+    val confidence: Float,
+    val recommendedActions: List<ActionType>
+)
+
+class CausalReasoningGraph(private val capacity: Int = 256) {
+    private val relations = ArrayDeque<CausalRelation>()
+
+    @Synchronized
+    fun observe(cause: String, effect: String, outcome: Float) {
+        val existing = relations.firstOrNull { it.cause == cause && it.effect == effect }
+        if (existing != null) {
+            val updated = existing.copy(
+                strength = (existing.strength * 0.75f + outcome * 0.25f).coerceIn(-1f, 1f),
+                observations = existing.observations + 1
+            )
+            relations.remove(existing)
+            relations.addLast(updated)
+        } else {
+            if (relations.size >= capacity) relations.removeFirst()
+            relations.addLast(CausalRelation(cause, effect, outcome.coerceIn(-1f, 1f)))
+        }
+    }
+
+    @Synchronized
+    fun infer(observation: AgentObservation, state: AgentState): ReasoningConclusion {
+        val evidence = mutableListOf<String>()
+        val actions = mutableListOf<ActionType>()
+        var confidence = state.confidence * 0.5f
+
+        if (reasoning.confidence >= 0.35f && reasoning.recommendedActions.isNotEmpty()) {
+            reasoning.recommendedActions.forEach { type ->
+                candidates += scored(type, "Suy luận: " + reasoning.hypothesis + " | evidence=" + reasoning.evidence.joinToString(","), 0.70f + reasoning.confidence * 0.25f)
+            }
+        }
+
+        if (observation.tokenCount > 0) {
+            evidence += "input_present"
+            actions += ActionType.CONSOLIDATE_MEMORY
+            actions += ActionType.RUN_INFERENCE
+            confidence += 0.15f
+        }
+
+        if (observation.spatialSurfaceCount > 0 || state.novelty > 0.25f) {
+            evidence += "environment_changed"
+            actions += ActionType.ANALYZE_SPATIAL
+            confidence += 0.12f
+        }
+
+        if (observation.economicOpportunity) {
+            evidence += "economic_signal_present"
+            actions += ActionType.EVALUATE_ECONOMIC_TASK
+            confidence += 0.08f
+        }
+
+        val positiveRelations = relations.filter { it.strength > 0.45f }.takeLast(3)
+        positiveRelations.forEach {
+            evidence += it.cause + "->" + it.effect
+            confidence += 0.03f
+        }
+
+        return ReasoningConclusion(
+            hypothesis = if (evidence.isEmpty()) "no_actionable_signal" else "current_state_requires_adaptive_response",
+            evidence = evidence,
+            confidence = confidence.coerceIn(0f, 1f),
+            recommendedActions = actions.distinct()
+        )
+    }
+}
+
 class HoloIntelligenceCore {
     private val experienceMemory = AdaptiveExperienceMemory()
+    private val causalGraph = CausalReasoningGraph()
     private var state = AgentState()
     private var previousObservation: AgentObservation? = null
 
@@ -131,7 +212,8 @@ class HoloIntelligenceCore {
             state
         }
 
-        val plan = buildPlan(before, observation)
+        val reasoning = causalGraph.infer(observation, before)
+        val plan = buildPlan(before, observation, reasoning)
         val results = plan.map { action ->
             try {
                 executor(action)
@@ -145,6 +227,12 @@ class HoloIntelligenceCore {
         val successfulActions = results
             .filter { it.success }
             .mapTo(mutableSetOf()) { it.action.type }
+
+        causalGraph.observe(
+            cause = "cycle_" + before.cycle,
+            effect = "reward_" + String.format("%.2f", reward),
+            outcome = reward.coerceIn(-1f, 1f)
+        )
 
         experienceMemory.append(
             AdaptiveExperienceMemory.Experience(
@@ -186,7 +274,8 @@ class HoloIntelligenceCore {
 
     private fun buildPlan(
         state: AgentState,
-        observation: AgentObservation
+        observation: AgentObservation,
+        reasoning: ReasoningConclusion
     ): List<PlannedAction> {
         val candidates = mutableListOf<PlannedAction>()
 
