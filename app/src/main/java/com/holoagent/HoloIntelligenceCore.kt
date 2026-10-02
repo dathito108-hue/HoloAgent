@@ -144,12 +144,6 @@ class CausalReasoningGraph(private val capacity: Int = 256) {
         val actions = mutableListOf<ActionType>()
         var confidence = state.confidence * 0.5f
 
-        if (reasoning.confidence >= 0.35f && reasoning.recommendedActions.isNotEmpty()) {
-            reasoning.recommendedActions.forEach { type ->
-                candidates += scored(type, "Suy luận: " + reasoning.hypothesis + " | evidence=" + reasoning.evidence.joinToString(","), 0.70f + reasoning.confidence * 0.25f)
-            }
-        }
-
         if (observation.tokenCount > 0) {
             evidence += "input_present"
             actions += ActionType.CONSOLIDATE_MEMORY
@@ -184,7 +178,7 @@ class CausalReasoningGraph(private val capacity: Int = 256) {
     }
 }
 
-class HoloIntelligenceCore {
+class HoloIntelligenceCore(private val persistence: PersistentCognitiveMemory? = null) {
     private val experienceMemory = AdaptiveExperienceMemory()
     private val causalGraph = CausalReasoningGraph()
     private var state = AgentState()
