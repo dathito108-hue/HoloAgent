@@ -21,7 +21,8 @@ class MainActivity : Activity() {
         Thread {
             val node = HoloMasterOmniAgiCollectiveV18(
                 nodeId = "agent_sentinel_01",
-                ipAddress = "local"
+                ipAddress = "local",
+                context = this@MainActivity
             )
 
             val goal = AgentGoal(
@@ -60,7 +61,8 @@ class MainActivity : Activity() {
                     .append("\n\n")
             }
 
-            report.append("Kinh nghiệm lưu trong phiên: ").append(node.experienceCount())
+            report.append("Kinh nghiệm bền vững: ").append(node.experienceCount()).append("\n")
+            report.append("Đóng Activity rồi mở lại vẫn khôi phục State/Experience/Reasoning.")
 
             runOnUiThread {
                 status.text = "HoloAgent Adaptive Runtime\n\n" + report
