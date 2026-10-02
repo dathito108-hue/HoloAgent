@@ -41,7 +41,9 @@ data class AgentState(
 data class PlannedAction(
     val type: ActionType,
     val reason: String,
-    val expectedUtility: Float
+    val expectedUtility: Float,
+    val stepId: String? = null,
+    val sequence: Int = 0
 )
 
 data class ActionResult(
@@ -55,6 +57,7 @@ data class IntelligenceCycleResult(
     val stateBefore: AgentState,
     val stateAfter: AgentState,
     val plan: List<PlannedAction>,
+    val multiStepPlan: MultiStepPlan = MultiStepPlan("", emptyList()),
     val results: List<ActionResult>,
     val reward: Float
 )
@@ -183,6 +186,8 @@ class HoloIntelligenceCore(private val persistence: PersistentCognitiveMemory? =
     private val causalGraph = CausalReasoningGraph()
     private var state = AgentState()
     private var previousObservation: AgentObservation? = null
+    private val goalPlanner = GoalDecompositionPlanner()
+    private var activeMultiStepPlan = MultiStepPlan("", emptyList())
 
     init { persistence?.let { state = it.loadState(); experienceMemory.restore(it.loadExperiences()); causalGraph.restore(it.loadRelations()) } }
 
@@ -209,7 +214,8 @@ class HoloIntelligenceCore(private val persistence: PersistentCognitiveMemory? =
         }
 
         val reasoning = causalGraph.infer(observation, before)
-        val plan = buildPlan(before, observation, reasoning)
+        activeMultiStepPlan = goalPlanner.decompose(goal, observation, reasoning, before)
+        val plan = buildPlan(before, observation, reasoning, activeMultiStepPlan)
         val results = plan.map { action ->
             try {
                 executor(action)
@@ -219,6 +225,7 @@ class HoloIntelligenceCore(private val persistence: PersistentCognitiveMemory? =
         }
 
         val reward = evaluateReward(goal, observation, results)
+        activeMultiStepPlan = goalPlanner.advance(activeMultiStepPlan, results)
 
         val successfulActions = results
             .filter { it.success }
@@ -266,15 +273,18 @@ class HoloIntelligenceCore(private val persistence: PersistentCognitiveMemory? =
         }
 
         persistence?.save(state, experienceMemory.snapshot(), causalGraph.snapshot())
-        return IntelligenceCycleResult(before, after, plan, results, reward)
+        return IntelligenceCycleResult(before, after, plan, activeMultiStepPlan, results, reward)
     }
 
     private fun buildPlan(
         state: AgentState,
         observation: AgentObservation,
-        reasoning: ReasoningConclusion
+        reasoning: ReasoningConclusion,
+        multiStepPlan: MultiStepPlan
     ): List<PlannedAction> {
         val candidates = mutableListOf<PlannedAction>()
+        val activeStep = multiStepPlan.steps.getOrNull(multiStepPlan.currentStepIndex)
+        activeStep?.let { candidates += scored(it.action, "Bước ${it.id}: ${it.description}", it.priority + multiStepPlan.confidence * .15f, it.id) }
 
         if (observation.tokenCount > 0) {
             candidates += scored(
@@ -320,10 +330,10 @@ class HoloIntelligenceCore(private val persistence: PersistentCognitiveMemory? =
             .take(5)
     }
 
-    private fun scored(type: ActionType, reason: String, baseUtility: Float): PlannedAction {
+    private fun scored(type: ActionType, reason: String, baseUtility: Float, stepId: String? = null): PlannedAction {
         val learned = experienceMemory.actionSuccessRate(type)
         val utility = clamp01(baseUtility * 0.75f + learned * 0.25f)
-        return PlannedAction(type, reason, utility)
+        return PlannedAction(type, reason, utility, stepId)
     }
 
     private fun evaluateReward(
