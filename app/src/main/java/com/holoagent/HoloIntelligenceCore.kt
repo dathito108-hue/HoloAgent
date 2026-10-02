@@ -184,6 +184,8 @@ class HoloIntelligenceCore(private val persistence: PersistentCognitiveMemory? =
     private var state = AgentState()
     private var previousObservation: AgentObservation? = null
 
+    init { persistence?.let { state = it.loadState(); experienceMemory.restore(it.loadExperiences()); causalGraph.restore(it.loadRelations()) } }
+
     @Synchronized
     fun currentState(): AgentState = state
 
@@ -263,6 +265,7 @@ class HoloIntelligenceCore(private val persistence: PersistentCognitiveMemory? =
             state
         }
 
+        persistence?.save(state, experienceMemory.snapshot(), causalGraph.snapshot())
         return IntelligenceCycleResult(before, after, plan, results, reward)
     }
 
