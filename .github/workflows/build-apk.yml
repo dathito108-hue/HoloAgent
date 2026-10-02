@@ -3,13 +3,19 @@ name: Build HoloAgent APK
 on:
   push:
     branches: [ main ]
+  pull_request:
+    branches: [ main ]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
-  build:
+  verify-build:
+    name: Verify and build Android APK
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
+    timeout-minutes: 30
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -19,21 +25,50 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+          cache: gradle
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
           packages: 'platforms;android-35 build-tools;35.0.0 platform-tools'
 
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+      - name: Validate Gradle wrapper
+        run: |
+          test -f ./gradlew
+          chmod +x ./gradlew
+          ./gradlew --version
 
-      - name: Build debug APK
-        run: gradle --no-daemon :app:assembleDebug
+      - name: Compile Kotlin
+        run: ./gradlew --no-daemon :app:compileDebugKotlin --stacktrace
 
-      - name: Upload APK
+      - name: Run unit tests
+        run: ./gradlew --no-daemon :app:testDebugUnitTest --stacktrace
+
+      - name: Run lint
+        run: ./gradlew --no-daemon :app:lintDebug --stacktrace
+
+      - name: Assemble debug APK
+        run: ./gradlew --no-daemon :app:assembleDebug --stacktrace
+
+      - name: Verify APK
+        run: |
+          test -s app/build/outputs/apk/debug/app-debug.apk
+          ls -lh app/build/outputs/apk/debug/app-debug.apk
+          sha256sum app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
           name: HoloAgent-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload lint report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HoloAgent-lint-report
+          path: app/build/reports/lint-results-debug.html
+          if-no-files-found: ignore
+          retention-days: 7
