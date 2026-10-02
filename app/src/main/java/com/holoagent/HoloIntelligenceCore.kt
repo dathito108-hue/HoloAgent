@@ -216,6 +216,7 @@ class HoloIntelligenceCore(private val persistence: PersistentCognitiveMemory? =
     private var previousObservation: AgentObservation? = null
     private val goalPlanner = GoalDecompositionPlanner()
     private var activeMultiStepPlan = MultiStepPlan("", emptyList())
+    private var previousResults: List<ActionResult> = emptyList()
 
     init { persistence?.let { state = it.loadState(); experienceMemory.restore(it.loadExperiences()); causalGraph.restore(it.loadRelations()) } }
 
@@ -267,6 +268,7 @@ class HoloIntelligenceCore(private val persistence: PersistentCognitiveMemory? =
                 ActionResult(action, false, -1f, t.message ?: t::class.java.simpleName)
             }
         }
+        previousResults = results
 
         val reward = evaluateReward(goal, observation, results)
         activeMultiStepPlan = goalPlanner.advance(activeMultiStepPlan, results)
